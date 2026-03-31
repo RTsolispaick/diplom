@@ -20,23 +20,20 @@ class DatasetBuilder:
             window = prices[start:end]
 
             label = 0
-            pattern_start = -1
-            pattern_end = -1
+            pattern_start = 0.0
+            pattern_end = 0.0
 
             # Ищем паттерн в текущем окне
             for pattern in patterns:
-                p_start = pattern["left_shoulder"]  # конец левого пика
-                p_end = pattern["right_shoulder"]    # конец правого пика
-                
-                # Проверяем, находится ли паттерн в окне
+                p_start = pattern["left_shoulder"]
+                p_end = pattern["right_shoulder"]
+
+                # Проверяем, находится ли паттерн полностью в окне
                 if p_start >= start and p_end < end:
                     label = 1
                     # Сохраняем координаты относительно начала окна
-                    pattern_start = p_start - start
-                    pattern_end = p_end - start
-                    # Нормализуем на [0, 1]
-                    pattern_start = pattern_start / self.window_size
-                    pattern_end = pattern_end / self.window_size
+                    pattern_start = (p_start - start) / max(self.window_size - 1, 1)
+                    pattern_end = (p_end - start) / max(self.window_size - 1, 1)
                     break
 
             std = window.std()
