@@ -1,202 +1,177 @@
-# Детектор паттерна Голова и Плечи
+# 🎯 Локализация паттерна "Голова и Плечи"
 
-Python-библиотека для обнаружения и анализа паттерна "Голова и Плечи" в финансовых временных рядах.
+**Обучение CNN-LSTM модели для обнаружения и локализации паттерна "Голова и Плечи" на временных рядах**
 
-## Описание
+---
 
-Проект предоставляет фреймворк для:
-- Загрузки исторических данных о цене с финансовых рынков
-- Обнаружения паттерна "Голова и Плечи" в движении цены
-- Построения структурированных наборов данных из обнаруженных паттернов
-- Извлечения нормализованных окон фиче для обучения моделей
+## 📦 Структура проекта
 
-## Возможности
+```
+├── create_dataset_with_coordinates.ipynb   # Генерация датасета с координатами паттернов
+├── model_architecture.py                   # CNN-LSTM с Attention и BiLSTM
+├── pattern_detector.py                     # Утилиты поиска паттернов
+├── train_localization_optimized.ipynb      # Основной ноутбук обучения (оптимизированный)
+├── train.csv                               # Обучающие данные (120 точек + координаты)
+├── test.csv                                # Тестовые данные
+└── README.md                               # Этот файл
+```
 
-- **Загрузка данных**: Загрузчик временных рядов для финансовых инструментов
-- **Обнаружение паттернов**: Детектирование паттерна "Голова и Плечи" с настраиваемыми параметрами
-- **Анализ паттернов**: Поддержка как стандартных, так и инверсных (перевёрнутых) паттернов
-- **Построение датасета**: Автоматическое создание датасета с размеченными окнами
-- **Нормализация**: Поокначная нормализация для согласованного масштабирования признаков
+---
 
-## Требования
+## 🚀 Быстрый старт
 
-- Python 3.7+
-- pandas
-- numpy
-- scipy
-- scikit-learn
-- yfinance
-
-## Установка
+### 1. Установка зависимостей
 
 ```bash
-pip install pandas numpy scipy scikit-learn yfinance
+pip install torch numpy pandas scikit-learn matplotlib seaborn
 ```
 
-## Использование
+### 2. Генерация датасета (опционально)
 
-### Базовый пример
+```bash
+jupyter notebook create_dataset_with_coordinates.ipynb
+```
+
+Результат: `train.csv`, `test.csv` с 120 временными точками и координатами паттернов
+
+### 3. Обучение модели
+
+```bash
+jupyter notebook train_localization_optimized.ipynb
+```
+
+**Результаты:**
+- `best_model_loc.pt` - обученная модель
+- `training_history.png` - графики обучения
+- `validation_examples.png` - примеры предсказаний
+
+---
+
+## 🧠 Архитектура модели
+
+```
+Input (batch, 1, 120)
+  ↓
+3x Conv1D (1→32→64→96) + BatchNorm
+  ↓
+Attention (4 heads, 128 dim)
+  ↓
+BiLSTM (128→128 hidden)
+  ↓
+Dense (128→64)
+  ↓
+  ├─→ Classification Head (5 слоев) → [0,1]
+  ├─→ Start Head (5 слоев) → [0,1]
+  └─→ End Head (5 слоев) → [0,1]
+```
+
+**462,371 обучаемых параметров**
+
+### Выходы модели
+
+| Выход | Диапазон | Описание |
+|--------|----------|---------|
+| `class_out` | [0, 1] | Вероятность паттерна |
+| `start_out` | [0, 1] | Нормализованное начало (×120 = индекс) |
+| `end_out` | [0, 1] | Нормализованный конец (×120 = индекс) |
+
+---
+
+## 📊 Функции потерь
+
+```
+Loss = BCELoss(class) + LAMBDA_LOC × MSELoss(start,end) + LAMBDA_ORDER × ReLU(start-end)
+```
+
+**Параметры:**
+- `LAMBDA_LOC = 1.0` - вес локализации
+- `LAMBDA_ORDER = 0.1` - штраф за нарушение start ≤ end
+
+---
+
+## ⚙️ Конфигурация обучения
 
 ```python
-from data_loader import DataLoader
-from pattern_detector import HeadShouldersDetector
-from dataset_builder import DatasetBuilder
-
-# Загружаем данные о цене
-loader = DataLoader("AAPL", start="2015-01-01", end="2024-01-01")
-df = loader.load()
-
-# Обнаруживаем паттерны "Голова и Плечи"
-detector = HeadShouldersDetector()
-patterns = detector.find_patterns(df)
-
-# Строим датасет для обучения модели
-builder = DatasetBuilder(window_size=120, step=5)
-X, y_labels, y_coords = builder.build(df, patterns)
+EPOCHS = 150           # Максимум эпох
+PATIENCE = 20          # Early stopping
+LEARNING_RATE = 0.0015 # Скорость обучения
+BATCH_SIZE = 32        # Размер батча
+VAL_SPLIT = 0.2        # Доля валидации
 ```
 
-### Обнаружение инверсных паттернов
+---
+
+## 📈 Ожидаемые метрики
+
+| Метрика | Значение |
+|---------|----------|
+| Accuracy | ~85-90% |
+| Precision | ~80-85% |
+| Recall | ~80-90% |
+| F1 | ~82-87% |
+| ROC-AUC | ~90-95% |
+
+**Локализация:**
+- Средняя ошибка начала: ±3-5 индексов
+- Средняя ошибка конца: ±3-5 индексов
+
+---
+
+## 🔧 Использование модели
 
 ```python
-# Находим инверсные паттерны "Голова и Плечи"
-inverse_patterns = detector.find_patterns(df, inverse=True)
+import torch
+from model_architecture import CNNLSTMLocalizationModel
+
+# Загрузка модели
+model = CNNLSTMLocalizationModel()
+model.load_state_dict(torch.load('best_model_loc.pt'))
+model.eval()
+
+# Предсказание
+with torch.no_grad():
+    class_pred, start_pred, end_pred = model(X_tensor)
+
+# Распаковка результатов
+prob = class_pred.item()
+start_idx = int(start_pred.item() * 120)
+end_idx = int(end_pred.item() * 120)
+
+print(f"Паттерн: {'ДА' if prob > 0.5 else 'НЕТ'} ({prob:.4f})")
+print(f"Диапазон: [{start_idx}, {end_idx}]")
 ```
 
-### Сохранение в CSV
+---
 
-```python
-from dataset_pipeline import save_csv
+## 📝 Формат данных в CSV
 
-save_csv(X, y_coords, "output.csv")
-```
-
-## Конфигурация
-
-### Параметры HeadShouldersDetector
-
-- `order` (int): Размер окна для обнаружения локальных экстремумов (по умолчанию: 5)
-- `shoulder_tol` (float): Допуск на симметричность плеч (по умолчанию: 0.25)
-- `min_head_height` (float): Минимальная высота головы относительно плеч (по умолчанию: 0.02)
-- `min_distance` (int): Минимальное расстояние между ключевыми точками паттерна (по умолчанию: 8)
-- `max_width` (int): Максимальная ширина паттерна в барах (по умолчанию: 120)
-
-### Параметры DatasetBuilder
-
-- `window_size` (int): Размер каждого окна признаков (по умолчанию: 120)
-- `step` (int): Шаг скользящего окна (по умолчанию: 5)
-
-## Структура проекта
-
-```
-├── data_loader.py                # Загрузка временных рядов
-├── pattern_detector.py           # Обнаружение паттернов
-├── dataset_builder.py            # Построение датасета из паттернов
-├── dataset_pipeline.py           # Высокоуровневые функции
-├── model_architecture.py         # Архитектуры CNN-LSTM
-├── train_localization_model.py   # Обучение модели с локализацией
-├── inference_localization.py     # Инференс и предсказания
-├── train.csv                     # Данные для обучения (с координатами)
-├── test.csv                      # Тестовые данные (с координатами)
-└── README.md                     # Этот файл
-```
-
-## Использование: Классификация с локализацией паттерна
-
-### Новое в версии 2.0
-
-Датасет теперь содержит не только метку наличия паттерна, но и его локализацию:
-- `has_pattern` — есть ли на окне паттерн "Голова и плечи" (0/1)
-- `pattern_start` — нормализованное начало паттерна (0-1)
-- `pattern_end` — нормализованный конец паттерна (0-1)
-
-### Шаг 1: Подготовка данных
-
-Датасет CSV должен содержать:
 ```
 t0,t1,...,t119,has_pattern,pattern_start,pattern_end
 -2.34,-2.36,...,0.08,1,0.25,0.65
-...
 ```
 
-### Шаг 2: Обучение модели
+- `t0...t119` - 120 последовательных значений цены (нормализованы)
+- `has_pattern` - 0 или 1 (есть паттерн)
+- `pattern_start` - начало в диапазоне [0, 1]
+- `pattern_end` - конец в диапазоне [0, 1]
 
-```bash
-python train_localization_model.py
-```
+---
 
-Выведет:
-- Процесс обучения с метриками
-- Сохраняет лучшую модель в `best_model_loc.pt`
-- Финальные метрики на тестовом наборе
+## 📚 Используемые библиотеки
 
-**Параметры обучения**:
-- Эпохи: 100
-- Batch size: 32
-- Learning rate: 0.001
-- Early stopping: patience=15
+- **PyTorch** - глубокое обучение
+- **NumPy/Pandas** - обработка данных
+- **scikit-learn** - метрики
+- **Matplotlib/Seaborn** - визуализация
 
-### Шаг 3: Инференс
+---
 
-```bash
-python inference_localization.py
-```
+## 💡 Примечания
 
-Примеры использования:
-```python
-from inference_localization import PatternPredictor
-
-predictor = PatternPredictor('best_model_loc.pt')
-
-# Для одного образца
-prediction = predictor.predict_sample(time_series)
-# {
-#     'has_pattern': 0.87,
-#     'pattern_start': 0.25,
-#     'pattern_end': 0.65,
-#     'pattern_start_idx': 30,
-#     'pattern_end_idx': 78,
-#     'confidence': 0.87
-# }
-
-# Для батча
-predictions = predictor.predict_batch(batch_data)
-```
-
-## Архитектура модели
-
-### CNNLSTMLocalizationModel
-
-**Архитектура**:
-```
-Input [batch, 1, 120]
-  ↓
-Conv1d(1→32) + BatchNorm + ReLU
-Conv1d(32→64) + BatchNorm + ReLU
-MaxPool1d(kernel=2)
-  ↓
-LSTM(64→64, dropout=0.3)
-LSTM(64→32)
-  ↓
-Shared Dense: 32→64
-  ├─ Classification: 64→32→1 [Sigmoid]
-  ├─ Start Localization: 64→32→1 [Sigmoid]
-  └─ End Localization: 64→32→1 [Sigmoid]
-
-Output:
-  class_out: вероятность паттерна (0-1)
-  start_out: нормализованное начало (0-1)
-  end_out: нормализованный конец (0-1)
-```
-
-**Параметры**: ~150K обучаемых параметров
-
-### Функция потерь
-
-$$\mathcal{L} = \text{BCE}(\text{class}) + \lambda \times (\text{SmoothL1}(\text{start}) + \text{SmoothL1}(\text{end}))$$
-
-где $\lambda = 0.5$ — вес локализационных потерь.
-
-Локализационные потери применяются только к образцам с паттерном (has_pattern=1).
+1. **GPU**: Автоматическое использование CUDA, если доступен
+2. **Аугментация**: Встроена в ноутбук (4 метода)
+3. **Early Stopping**: 20 эпох без улучшения
+4. **Нормализация**: Все ряды нормализованы
 
 ## Результаты
 
